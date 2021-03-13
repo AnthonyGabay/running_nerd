@@ -1,0 +1,185 @@
+---
+title: "Running analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# # # # load packages
+# # source(here::here("R", "libraries.R"))
+# 
+# # libraries()
+
+```
+
+## Load data files
+
+```{r}
+
+# select files
+data_files <- choose.files(here::here("raw_data")) 
+
+# load csvs
+dat <- data_files %>%
+  map(., ~ read_csv(.x)) %>%
+  
+  # rename and select relevant columns
+  map(., ~ dplyr::rename(.x, 
+                         time = Sport, 
+                         HR = Date,
+                         pace = Duration,
+                         distance = contains('Max Speed'),
+                         altitude = 'Average heart rate (bpm)')) %>%
+  map(., ~ dplyr::select(.x,
+                         time, HR, pace, distance, altitude)) %>%
+  
+  # get rid of the first few lines
+  map(., ~ dplyr::filter(.x,
+                         !grepl("RUNNING", time))) %>%
+  map(., ~ dplyr::filter(.x,
+                         !grepl("Time", time))) %>%
+  
+  # convert time to seconds and pace to seconds per km
+  map(., ~ mutate(.x, 
+                  time = lubridate::period_to_seconds(lubridate::hms(time)))) %>%
+  map(., ~ mutate(.x, 
+                  pace_seconds = lubridate::period_to_seconds(lubridate::ms(pace)))) %>%
+  
+  # convert to numeric
+  map(., ~ mutate(.x,
+                   across(-pace, as.numeric))) %>%
+  
+  map(., ~ mutate(.x, 
+                  lagged_altitude = lag(altitude),
+                  gradient = case_when(time == 0 ~ 0,
+                            TRUE ~ altitude - lagged_altitude)))
+
+## Add session number and baseline (can't think of a better way of doing this other than hard-coding for now)
+
+#### NOTE THAT I'VE HARDCODED THIS NEXT SECTION 
+
+dat[[1]] <- dat[[1]] %>%
+  mutate(session = 1, baseline_strain = 30, shoe = "old") %>%
+  # label kms
+  mutate(km = case_when(distance <= 1000 ~ 1,
+                        distance > 1000 & distance <= 2000 ~ 2,
+                        distance > 2000 & distance <= 3000 ~ 3,
+                        distance > 3000 & distance <= 4000 ~ 4,
+                        distance > 4000 & distance <= 5000 ~ 5,
+                        distance > 5000 & distance <= 6000 ~ 6,
+                        distance > 6000 & distance <= 7000 ~ 7,
+                        distance > 7000 & distance <= 8000 ~ 8,
+                        distance > 8000 & distance <= 9000 ~ 9,
+                        distance > 9000 & distance <= 10000 ~ 10,
+                        distance > 10000 & distance <= 11000 ~ 11,
+                        distance > 11000 & distance <= 12000 ~ 12,
+                        distance > 12000 & distance <= 13000 ~ 13)) %>%
+  mutate(km = factor(km))
+
+dat[[2]] <- dat[[2]] %>%
+  mutate(session = 2, baseline_strain = 51, shoe = "old") %>%
+  # label kms
+  mutate(km = case_when(distance <= 1000 ~ 1,
+                        distance > 1000 & distance <= 2000 ~ 2,
+                        distance > 2000 & distance <= 3000 ~ 3,
+                        distance > 3000 & distance <= 4000 ~ 4,
+                        distance > 4000 & distance <= 5000 ~ 5,
+                        distance > 5000 & distance <= 6000 ~ 6,
+                        distance > 6000 & distance <= 7000 ~ 7,
+                        distance > 7000 & distance <= 8000 ~ 8,
+                        distance > 8000 & distance <= 9000 ~ 9,
+                        distance > 9000 & distance <= 10000 ~ 10,
+                        distance > 10000 & distance <= 11000 ~ 11,
+                        distance > 11000 & distance <= 12000 ~ 12,
+                        distance > 12000 & distance <= 13000 ~ 13,
+                        distance > 13000 & distance <= 14000 ~ 14,
+                        distance > 14000 & distance <= 15000 ~ 15,
+                        distance > 15000 & distance <= 16000 ~ 16,
+                        distance > 16000 & distance <= 17000 ~ 17)) %>%
+  mutate(km = factor(km))
+
+dat[[3]] <- dat[[3]] %>%
+  mutate(session = 3, baseline_strain = 60, shoe = "new") %>%
+  # label kms
+  mutate(km = case_when(distance <= 1000 ~ 1,
+                        distance > 1000 & distance <= 2000 ~ 2,
+                        distance > 2000 & distance <= 3000 ~ 3,
+                        distance > 3000 & distance <= 4000 ~ 4,
+                        distance > 4000 & distance <= 5000 ~ 5,
+                        distance > 5000 & distance <= 6000 ~ 6,
+                        distance > 6000 & distance <= 7000 ~ 7,
+                        distance > 7000 & distance <= 8000 ~ 8,
+                        distance > 8000 & distance <= 9000 ~ 9,
+                        distance > 9000 & distance <= 10000 ~ 10,
+                        distance > 10000 & distance <= 11000 ~ 11,
+                        distance > 11000 & distance <= 12000 ~ 12,
+                        distance > 12000 & distance <= 13000 ~ 13)) %>%
+  mutate(km = factor(km))
+
+##### END OF HARD CODED INFO
+
+
+### Combine data sets
+df <- bind_rows(dat) %>%
+  mutate(across(c("session", "shoe"), as.factor)) 
+
+```
+
+
+## Plot data 
+
+
+```{r}
+
+# set colours
+cols <- c("#A363D9", "#33BEB8", "#B2B225", "#FECC2F", 
+          "#F9A229", "#F6621F", "#DB3838", "#EE657A", "#A363D9" ,
+          "#99D963", "#99D963")
+
+df %>%
+  group_by(km, shoe) %>%
+  dplyr::summarise(pace = mean(pace_seconds)) %>%
+  ggplot(., aes(x = shoe, y = pace, colour = shoe)) +
+  geom_boxplot() +
+  geom_point(position = position_jitterdodge()) +
+  scale_colour_manual(values = cols, name = "Shoe", labels = c("New", "Old")) +
+
+  theme_bw() +
+   theme(axis.line = element_line(colour = "black"),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         panel.border = element_blank(),
+         panel.background = element_blank(),
+         legend.position = "none",
+         # axis.title.x=element_blank(),
+         # axis.ticks.x=element_blank(),
+        # axis.text.y=element_blank(),
+        # axis.title.y=element_blank(),
+         text = element_text(size=20),
+         plot.title = element_text(size = 11)
+   ) +
+  ylab("Pace (seconds per km)") +
+  xlab("Shoe")
+ 
+
+```
+
+
+## STATS!
+
+```{r}
+
+
+mod <- lmer(pace_seconds ~ shoe + HR + altitude + distance + baseline_strain + (1|session), data = df )
+summary(mod)
+Anova(mod, type = 2)
+
+performance::check_model(mod)
+
+
+```
+
+
+
+
